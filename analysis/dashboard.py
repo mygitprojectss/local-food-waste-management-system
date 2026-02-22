@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
 
 
 st.set_page_config(layout="wide")
@@ -9,132 +9,253 @@ st.set_page_config(layout="wide")
 st.title("🍲 Local Food Waste Management Dashboard")
 
 
-# -----------------------
-# DB CONNECT
-# -----------------------
+# -----------------------------
+# DATABASE
+# -----------------------------
 
 conn = sqlite3.connect("database/food_waste.db")
 
-food = pd.read_sql("SELECT * FROM food_listings", conn)
+food = pd.read_sql("SELECT * FROM food_listings",conn)
 
-claims = pd.read_sql("SELECT * FROM claims", conn)
+claims = pd.read_sql("SELECT * FROM claims",conn)
 
-receivers = pd.read_sql("SELECT * FROM receivers", conn)
+receivers = pd.read_sql("SELECT * FROM receivers",conn)
+
+providers = pd.read_sql("SELECT * FROM providers",conn)
 
 
-# -----------------------
-# SIDEBAR FILTER
-# -----------------------
+
+# -----------------------------
+# SIDEBAR FILTERS
+# -----------------------------
 
 st.sidebar.header("Filters")
 
 
-cities = receivers["City"].unique()
+city_list = receivers["City"].dropna().unique()
 
 selected_city = st.sidebar.selectbox(
 
-"Select Receiver City",
+"Receiver City",
 
-["All"] + list(cities)
+["All"]+list(city_list)
 
 )
 
 
-if selected_city != "All":
+food_types = food["Food_Type"].dropna().unique()
 
-    filtered_receivers = receivers[receivers["City"] == selected_city]
+selected_food = st.sidebar.selectbox(
 
-else:
+"Food Type",
 
-    filtered_receivers = receivers
+["All"]+list(food_types)
+
+)
 
 
 
-# -----------------------
-# KPI SECTION
-# -----------------------
+# Apply Filter
+
+if selected_city!="All":
+
+    receivers=receivers[receivers["City"]==selected_city]
+
+
+if selected_food!="All":
+
+    food=food[food["Food_Type"]==selected_food]
+
+
+
+# -----------------------------
+# KPIs
+# -----------------------------
 
 st.header("Overview")
 
-col1,col2,col3 = st.columns(3)
+c1,c2,c3,c4=st.columns(4)
 
-col1.metric("Total Food Listings", len(food))
+c1.metric("Food Listings",len(food))
 
-col2.metric("Total Claims", len(claims))
+c2.metric("Claims",len(claims))
 
-col3.metric("Total Receivers", len(filtered_receivers))
+c3.metric("Receivers",len(receivers))
 
-
-
-# -----------------------
-# CLAIM STATUS CHART
-# -----------------------
-
-st.header("Claim Status")
-
-fig,ax = plt.subplots()
-
-claims["Status"].value_counts().plot(
-
-kind="bar",
-
-ax=ax
-
-)
-
-st.pyplot(fig)
+c4.metric("Providers",len(providers))
 
 
 
-# -----------------------
-# FOOD TYPE CHART
-# -----------------------
+# -----------------------------
+# TABS
+# -----------------------------
 
-st.header("Food Type Distribution")
+tab1,tab2,tab3,tab4,tab5 = st.tabs([
 
-fig2,ax2 = plt.subplots()
+"Overview",
 
-food["Food_Type"].value_counts().plot(
+"Providers",
 
-kind="bar",
+"Receivers",
 
-ax=ax2
+"Claims",
 
-)
+"Expiry Risk"
 
-plt.xticks(rotation=45)
+])
 
-st.pyplot(fig2)
+# --------------------------------
+# TAB 1 OVERVIEW
+# --------------------------------
+
+with tab1:
+
+    st.subheader("Food Type Distribution")
+
+    food_counts = food["Food_Type"].value_counts().reset_index()
+
+    food_counts.columns = ["Food_Type","Count"]
+
+
+    fig = px.bar(
+
+        food_counts,
+
+        x="Food_Type",
+
+        y="Count",
+
+        title="Food Type Distribution"
+
+    )
+
+    st.plotly_chart(fig,use_container_width=True)
+
+
+# --------------------------------
+# TAB 2 PROVIDER ANALYSIS
+# --------------------------------
+
+with tab2:
+
+    st.subheader("Top Providers Contribution")
+
+    provider_analysis=pd.read_sql("""
+
+    SELECT p.Name,
+
+    SUM(f.Quantity) as Total_Quantity
+
+    FROM food_listings f
+
+    JOIN providers p
+
+    ON f.Provider_ID=p.Provider_ID
+
+    GROUP BY p.Provider_ID
+
+    ORDER BY Total_Quantity DESC
+
+    LIMIT 10
+
+    """,conn)
+
+
+    st.dataframe(provider_analysis)
 
 
 
-# -----------------------
-# TOP RECEIVERS TABLE
-# -----------------------
+# --------------------------------
+# TAB 3 RECEIVER ANALYSIS
+# --------------------------------
 
-st.header("Top Receivers")
+with tab3:
 
-receiver_claims = pd.read_sql("""
+    st.subheader("Most Active Receivers")
 
-SELECT r.Name,
+    receiver_claims=pd.read_sql("""
 
-COUNT(c.Claim_ID) AS Total_Claims
+    SELECT r.Name,
 
-FROM claims c
+    r.City,
 
-JOIN receivers r
+    COUNT(c.Claim_ID) as Claims
 
-ON c.Receiver_ID=r.Receiver_ID
+    FROM claims c
 
-GROUP BY r.Receiver_ID
+    JOIN receivers r
 
-ORDER BY Total_Claims DESC
+    ON c.Receiver_ID=r.Receiver_ID
 
-LIMIT 10
+    GROUP BY r.Receiver_ID
 
-""",conn)
+    ORDER BY Claims DESC
 
-st.dataframe(receiver_claims)
+    LIMIT 10
+
+    """,conn)
+
+
+    st.dataframe(receiver_claims)
+
+
+
+# --------------------------------
+# TAB 4 CLAIM ANALYSIS
+# --------------------------------
+
+with tab4:
+
+    st.subheader("Claim Status Distribution")
+
+    fig2=px.pie(
+
+        claims,
+
+        names="Status",
+
+        title="Claim Status"
+
+    )
+
+    st.plotly_chart(fig2,use_container_width=True)
+
+
+
+# --------------------------------
+# TAB 5 EXPIRY RISK
+# --------------------------------
+
+with tab5:
+
+    st.subheader("Expiry Risk Food")
+
+    expiry=pd.read_sql("""
+
+    SELECT Food_Type,
+
+    COUNT(*) as Expiring_Items
+
+    FROM food_listings
+
+    GROUP BY Food_Type
+
+    ORDER BY Expiring_Items DESC
+
+    """,conn)
+
+
+    fig3=px.bar(
+
+        expiry,
+
+        x="Food_Type",
+
+        y="Expiring_Items"
+
+    )
+
+    st.plotly_chart(fig3,use_container_width=True)
 
 
 
