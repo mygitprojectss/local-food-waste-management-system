@@ -40,4 +40,58 @@ print(claim_status)
 
 
 
+
+
+
+# -----------------------------------
+# 3 Most Active Receivers (JOIN)
+# -----------------------------------
+
+receiver_claims = pd.read_sql("""
+
+SELECT r.Name,
+       r.City,
+       COUNT(c.Claim_ID) AS Total_Claims
+
+FROM claims c
+
+JOIN receivers r
+ON c.Receiver_ID = r.Receiver_ID
+
+GROUP BY r.Receiver_ID
+
+ORDER BY Total_Claims DESC
+
+LIMIT 10
+
+""", conn)
+
+
+print("\nTop Active Receivers:\n")
+
+print(receiver_claims)
+# -----------------------------------
+# 4 Expiry Risk Food
+# -----------------------------------
+
+expiry_risk = pd.read_sql("""
+
+SELECT Food_Type,
+COUNT(*) AS Expiring_Items
+
+FROM food_listings
+
+GROUP BY Food_Type
+
+ORDER BY Expiring_Items DESC
+
+LIMIT 10
+
+""", conn)
+
+
+print("\nFood Expiry Risk:\n")
+
+print(expiry_risk)
+
 conn.close()
